@@ -12,19 +12,14 @@ static int utf8_read_valid_test()
         auto begin = str;
         auto end = begin + std::size(str) - 1; // -1 for null
         auto [ch, ptr] = json::utf8_read(begin, end);
-        if (ch == json::invalid_char)
+        if (ptr != end)
         {
-            std::printf("ERROR: Failure trying to read %s\n", str);
+            std::printf("ERROR: Failed to read character\n");
             return false;
         }
         else if (ch != expect)
         {
             std::printf("ERROR: Incorrect character read. Expected %d, got %d\n", expect, ch);
-            return false;
-        }
-        else if (ptr != end)
-        {
-            std::printf("ERROR: Failed to move pointer\n");
             return false;
         }
         return true;
@@ -50,14 +45,9 @@ static int utf8_read_invalid_test()
         // NOTE: The expectation is that all input is > 0x7F
         auto begin = &value;
         auto [ch, ptr] = json::utf8_read(begin, begin + 1);
-        if (ch != json::invalid_char)
+        if (ptr != &value)
         {
-            std::printf("ERROR: Read past the end of the buffer\n");
-            return false;
-        }
-        else if (ptr != &value)
-        {
-            std::printf("ERROR: Advanced pointer \n");
+            std::printf("ERROR: Advanced pointer for too-small buffer\n");
         }
 
         return true;
@@ -71,14 +61,9 @@ static int utf8_read_invalid_test()
         // NOTE: The expectation is that all input are invalid leading bytes
         auto begin = &value;
         auto [ch, ptr] = json::utf8_read(begin, begin + 42);
-        if (ch != json::invalid_char)
+        if (ptr != &value)
         {
-            std::printf("ERROR: Failed to identify invalid input with leading byte 0x%02X\n", static_cast<unsigned char>(value));
-            return false;
-        }
-        else if (ptr != &value)
-        {
-            std::printf("ERROR: Advanced pointer \n");
+            std::printf("ERROR: Advanced pointer for invalid input\n");
         }
 
         return true;
@@ -100,14 +85,9 @@ static int utf8_append_test()
     while (begin != end)
     {
         auto [ch, ptr] = json::utf8_read(begin, end);
-        if (ch == json::invalid_char)
+        if (ptr == begin)
         {
-            std::printf("ERROR: Failed to read character\n");
-            return 1;
-        }
-        else if (ptr == begin)
-        {
-            std::printf("ERROR: Failed to advance pointer\n");
+            std::printf("ERROR: Failed to advance read character\n");
             return 1;
         }
 

@@ -8,7 +8,7 @@
 
 namespace json
 {
-    constexpr char32_t invalid_char = 0xFFFFFFFF;
+    constexpr char invalid_char = 0xFF;
 
     constexpr std::size_t utf8_code_unit_read_size(char ch) noexcept
     {
@@ -22,8 +22,8 @@ namespace json
     {
         assert(begin != end);
         auto size = utf8_code_unit_read_size(*begin);
-        if (!size) return { invalid_char, begin };
-        if (static_cast<std::size_t>(end - begin) < size) return { invalid_char, begin };
+        if (!size) return { 0, begin };
+        if (static_cast<std::size_t>(end - begin) < size) return { 0, begin };
 
         char initialMasks[] = { 0x00, 0x7F, 0x1F, 0x0F, 0x07 };
         char32_t result = (*begin++) & initialMasks[size];
@@ -91,81 +91,43 @@ namespace json
 
     struct buffer_input_stream
     {
-        char32_t current = invalid_char;
         const char* read;
         const char* end;
 
-        buffer_input_stream(const char* begin, const char* end) : read(begin), end(end) { advance(); }
-        buffer_input_stream(std::string_view str) : buffer_input_stream(str.data(), str.data() + str.size()) {}
+        buffer_input_stream(const char* begin, const char* end) noexcept : read(begin), end(end) {}
+        buffer_input_stream(std::string_view str) noexcept : buffer_input_stream(str.data(), str.data() + str.size()) {}
 
-        constexpr operator bool() const noexcept { return current != invalid_char; }
+        constexpr operator bool() const noexcept { return read != end; }
+        constexpr bool eof() const noexcept { return read == end; }
 
-        constexpr char32_t get() noexcept
+        constexpr char get() noexcept
         {
-            auto ch = current;
-            advance();
-            return ch;
+            return eof() ? invalid_char : *read++;
         }
 
-        constexpr char32_t peek() noexcept
+        constexpr char peek() noexcept
         {
-            return current;
-        }
-
-        constexpr bool eof() const noexcept { return (current == invalid_char) && (read == end); }
-
-        constexpr void advance() noexcept
-        {
-            if (read == end)
-            {
-                current = invalid_char;
-            }
-            else
-            {
-                auto [ch, ptr] = utf8_read(read, end);
-                read = ptr;
-                current = ch;
-            }
+            return eof() ? invalid_char : *read;
         }
     };
 
     struct istream
     {
-        char32_t current = invalid_char;
         std::istream& stream;
 
-        istream(std::istream& stream) : stream(stream) { advance(); }
+        istream(std::istream& stream) noexcept : stream(stream) {}
 
-        operator bool() const noexcept { return stream.operator bool(); }
+        operator bool() const noexcept { return stream.good(); }
+        constexpr bool eof() const noexcept { return stream.eof(); }
 
-        constexpr char32_t get() noexcept
+        constexpr char get() noexcept
         {
-            auto ch = current;
-            advance();
-            return ch;
+            return static_cast<char>(stream.get());
         }
 
-        constexpr char32_t peek() noexcept
+        constexpr char peek() noexcept
         {
-            return current;
-        }
-
-        constexpr bool eof() const noexcept { return (current == invalid_char) && stream.eof(); }
-
-        void advance()
-        {
-            current = invalid_char;
-            if (stream)
-            {
-                auto size = utf8_code_unit_read_size(static_cast<char>(stream.peek()));
-                char buffer[4];
-                stream.read(buffer, size);
-                if (stream)
-                {
-                    auto [ch, ptr] = utf8_read(buffer, buffer + size);
-                    current = ch;
-                }
-            }
+            return static_cast<char>(stream.peek());
         }
     };
 
@@ -205,7 +167,7 @@ namespace json
 
         void skip_whitespace()
         {
-            while (input && is_whitespace(input.peek())) { input.get(); }
+            while (is_whitespace(input.peek())) { input.get(); }
         }
 
         void advance()
@@ -261,7 +223,6 @@ namespace json
                 case '"':
                     while (true)
                     {
-                        // NOTE: We assume all input is validated, so writes are not checked
                         ch = input.get();
                         if (ch == invalid_char)
                         {
@@ -323,13 +284,13 @@ namespace json
                         }
                         else
                         {
-                            if (ch < 0x20)
+                            if (static_cast<unsigned char>(ch) < 0x20)
                             {
                                 string_value.clear();
                                 error_text = "Control character in string";
                                 return;
                             }
-                            utf8_append(string_value, ch);
+                            string_value.push_back(ch);
                         }
                     }
                     current_token = lexer_token::string;
