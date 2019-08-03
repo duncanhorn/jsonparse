@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <istream>
 #include <string_view>
 
 #include "json.h"
@@ -124,6 +125,46 @@ namespace json
                 auto [ch, ptr] = utf8_read(read, end);
                 read = ptr;
                 current = ch;
+            }
+        }
+    };
+
+    struct istream
+    {
+        char32_t current = invalid_char;
+        std::istream& stream;
+
+        istream(std::istream& stream) : stream(stream) { advance(); }
+
+        operator bool() const noexcept { return stream.operator bool(); }
+
+        constexpr char32_t get() noexcept
+        {
+            auto ch = current;
+            advance();
+            return ch;
+        }
+
+        constexpr char32_t peek() noexcept
+        {
+            return current;
+        }
+
+        constexpr bool eof() const noexcept { return (current == invalid_char) && stream.eof(); }
+
+        void advance()
+        {
+            current = invalid_char;
+            if (stream)
+            {
+                auto size = utf8_code_unit_read_size(static_cast<char>(stream.peek()));
+                char buffer[4];
+                stream.read(buffer, size);
+                if (stream)
+                {
+                    auto [ch, ptr] = utf8_read(buffer, buffer + size);
+                    current = ch;
+                }
             }
         }
     };

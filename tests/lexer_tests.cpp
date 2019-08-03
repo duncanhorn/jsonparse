@@ -1,13 +1,12 @@
 
 #include <json_lexer.h>
+#include <sstream>
 
 #include "test_guard.h"
 
-static bool lex_expect_single_token(const char* begin, const char* end, json::lexer_token expected)
+template <typename InputStream>
+static bool lex_expect_single_token(json::lexer<InputStream>& lexer, json::lexer_token expected)
 {
-    json::buffer_input_stream stream(begin, end);
-    json::lexer lexer(stream);
-
     if (lexer.current_token != expected)
     {
         std::printf("ERROR: Incorrect token\n");
@@ -24,12 +23,27 @@ static bool lex_expect_single_token(const char* begin, const char* end, json::le
     return true;
 }
 
+static bool lex_expect_single_token(const char* begin, const char* end, json::lexer_token expected)
+{
+    json::buffer_input_stream stream(begin, end);
+    json::lexer lexer(stream);
+    return lex_expect_single_token(lexer, expected);
+}
+
+static bool lex_expect_single_token(std::stringstream input, json::lexer_token expected)
+{
+    json::istream stream(input);
+    json::lexer lexer(stream);
+    return lex_expect_single_token(lexer, expected);
+}
+
 static int lex_null_test()
 {
     test_guard guard{ "lex_null_test" };
 
     const char text[] = " \t\r\nnull \t\r\n";
     if (!lex_expect_single_token(text, text + std::size(text) - 1, json::lexer_token::keyword_null)) return 1;
+    if (!lex_expect_single_token(std::stringstream(text), json::lexer_token::keyword_null)) return 1;
 
     return guard.success();
 }
@@ -40,6 +54,7 @@ static int lex_true_test()
 
     const char text[] = " \t\r\ntrue \t\r\n";
     if (!lex_expect_single_token(text, text + std::size(text) - 1, json::lexer_token::keyword_true)) return 1;
+    if (!lex_expect_single_token(std::stringstream(text), json::lexer_token::keyword_true)) return 1;
 
     return guard.success();
 }
@@ -50,6 +65,7 @@ static int lex_false_test()
 
     const char text[] = " \t\r\nfalse \t\r\n";
     if (!lex_expect_single_token(text, text + std::size(text) - 1, json::lexer_token::keyword_false)) return 1;
+    if (!lex_expect_single_token(std::stringstream(text), json::lexer_token::keyword_false)) return 1;
 
     return guard.success();
 }
@@ -60,29 +76,41 @@ static int lex_valid_number_test()
 
     auto do_test = [](auto& str)
     {
+        auto exec = [&](auto& stream)
+        {
+            json::lexer lexer(stream);
+
+            if (lexer.current_token != json::lexer_token::number)
+            {
+                std::printf("ERROR: Incorrect token; expected number\n");
+                return false;
+            }
+            else if (lexer.string_value != str)
+            {
+                std::printf("ERROR: Text did not match; expected '%s', got '%s'\n", str, lexer.string_value.c_str());
+                return false;
+            }
+
+            lexer.advance();
+            if (lexer.current_token != json::lexer_token::eof)
+            {
+                std::printf("ERROR: Incorrect token; expected eof\n");
+                return false;
+            }
+
+            return true;
+        };
+
         std::string buffer = " \t\r\n";
         buffer += str;
         buffer += " \t\r\n";
+
         json::buffer_input_stream stream(buffer.c_str(), buffer.c_str() + buffer.size());
-        json::lexer lexer(stream);
+        if (!exec(stream)) return false;
 
-        if (lexer.current_token != json::lexer_token::number)
-        {
-            std::printf("ERROR: Incorrect token; expected number\n");
-            return false;
-        }
-        else if (lexer.string_value != str)
-        {
-            std::printf("ERROR: Text did not match; expected '%s', got '%s'\n", str, lexer.string_value.c_str());
-            return false;
-        }
-
-        lexer.advance();
-        if (lexer.current_token != json::lexer_token::eof)
-        {
-            std::printf("ERROR: Incorrect token; expected eof\n");
-            return false;
-        }
+        std::stringstream sstream(buffer);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
 
         return true;
     };
@@ -103,14 +131,25 @@ static int lex_invalid_number_test()
 
     auto do_test = [](auto& str)
     {
-        json::buffer_input_stream stream(str, str + std::size(str));
-        json::lexer lexer(stream);
-
-        if (lexer.current_token != json::lexer_token::invalid)
+        auto exec = [&](auto& stream)
         {
-            std::printf("ERROR: Incorrect token; expected invalid\n");
-            return false;
-        }
+            json::lexer lexer(stream);
+
+            if (lexer.current_token != json::lexer_token::invalid)
+            {
+                std::printf("ERROR: Incorrect token; expected invalid\n");
+                return false;
+            }
+            return true;
+        };
+
+        json::buffer_input_stream stream(str, str + std::size(str));
+        if (!exec(stream)) return false;
+
+        std::stringstream sstream(str);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
+
         return true;
     };
 
@@ -130,29 +169,41 @@ static int lex_valid_string_test()
     {
         if (!expected) expected = str;
 
+        auto exec = [&](auto& stream)
+        {
+            json::lexer lexer(stream);
+
+            if (lexer.current_token != json::lexer_token::string)
+            {
+                std::printf("ERROR: Incorrect token; expected string\n");
+                return false;
+            }
+            else if (lexer.string_value != expected)
+            {
+                std::printf("ERROR: Text did not match; expected '%s', got '%s'\n", expected, lexer.string_value.c_str());
+                return false;
+            }
+
+            lexer.advance();
+            if (lexer.current_token != json::lexer_token::eof)
+            {
+                std::printf("ERROR: Incorrect token; expected eof\n");
+                return false;
+            }
+
+            return true;
+        };
+
         std::string buffer = " \t\r\n\"";
         buffer += str;
         buffer += "\" \t\r\n";
+
         json::buffer_input_stream stream(buffer.c_str(), buffer.c_str() + buffer.size());
-        json::lexer lexer(stream);
+        if (!exec(stream)) return false;
 
-        if (lexer.current_token != json::lexer_token::string)
-        {
-            std::printf("ERROR: Incorrect token; expected string\n");
-            return false;
-        }
-        else if (lexer.string_value != expected)
-        {
-            std::printf("ERROR: Text did not match; expected '%s', got '%s'\n", expected, lexer.string_value.c_str());
-            return false;
-        }
-
-        lexer.advance();
-        if (lexer.current_token != json::lexer_token::eof)
-        {
-            std::printf("ERROR: Incorrect token; expected eof\n");
-            return false;
-        }
+        std::stringstream sstream(buffer);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
 
         return true;
     };
@@ -174,14 +225,25 @@ static int lex_invalid_string_test()
 
     auto do_test = [](auto& str)
     {
-        json::buffer_input_stream stream(str, str + std::size(str) - 1);
-        json::lexer lexer(stream);
-
-        if (lexer.current_token != json::lexer_token::invalid)
+        auto exec = [&](auto& stream)
         {
-            std::printf("ERROR: Incorrect token; expected invalid\n");
-            return false;
-        }
+            json::lexer lexer(stream);
+
+            if (lexer.current_token != json::lexer_token::invalid)
+            {
+                std::printf("ERROR: Incorrect token; expected invalid\n");
+                return false;
+            }
+            return true;
+        };
+
+        json::buffer_input_stream stream(str, str + std::size(str) - 1);
+        if (!exec(stream)) return false;
+
+        std::stringstream sstream(str);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
+
         return true;
     };
 
@@ -202,16 +264,28 @@ static int lex_array_test()
 
     auto do_test = [](auto& str, auto&& callback)
     {
+        auto exec = [&](auto& stream)
+        {
+            json::lexer lexer(stream);
+            return callback(lexer);
+        };
+
         std::string buffer = " \t\r\n";
         buffer += str;
         buffer += " \t\r\n";
+
         json::buffer_input_stream stream(buffer.c_str(), buffer.c_str() + buffer.size());
-        json::lexer lexer(stream);
-        return callback(lexer);
+        if (!exec(stream)) return false;
+
+        std::stringstream sstream(buffer);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
+
+        return true;
     };
 
     // This is intentionally a pretty simple test; any more would be testing things we test elsewhere
-    if (!do_test("[]", [](json::lexer<json::buffer_input_stream>& lexer)
+    if (!do_test("[]", [](auto& lexer)
     {
         if (lexer.current_token != json::lexer_token::bracket_open)
         {
@@ -236,7 +310,7 @@ static int lex_array_test()
         return true;
     })) return 1;
 
-    if (!do_test("[ 42, true,0,null ]", [](json::lexer<json::buffer_input_stream>& lexer)
+    if (!do_test("[ 42, true,0,null ]", [](auto& lexer)
     {
         if (lexer.current_token != json::lexer_token::bracket_open)
         {
@@ -295,15 +369,27 @@ static int lex_object_test()
 
     auto do_test = [](auto& str, auto&& callback)
     {
+        auto exec = [&](auto& stream)
+        {
+            json::lexer lexer(stream);
+            return callback(lexer);
+        };
+
         std::string buffer = " \t\r\n";
         buffer += str;
         buffer += " \t\r\n";
+
         json::buffer_input_stream stream(buffer.c_str(), buffer.c_str() + buffer.size());
-        json::lexer lexer(stream);
-        return callback(lexer);
+        if (!exec(stream)) return false;
+
+        std::stringstream sstream(buffer);
+        json::istream stream2(sstream);
+        if (!exec(stream2)) return false;
+
+        return true;
     };
 
-    if (!do_test("{}", [](json::lexer<json::buffer_input_stream>& lexer)
+    if (!do_test("{}", [](auto& lexer)
     {
         if (lexer.current_token != json::lexer_token::curly_open)
         {
@@ -321,7 +407,7 @@ static int lex_object_test()
         return true;
     })) return 1;
 
-    if (!do_test("{ \"answer\": 42, \"foo\": \"bar\", \"success\": false }", [](json::lexer<json::buffer_input_stream>& lexer)
+    if (!do_test("{ \"answer\": 42, \"foo\": \"bar\", \"success\": false }", [](auto& lexer)
     {
         if (lexer.current_token != json::lexer_token::curly_open)
         {
