@@ -1,113 +1,197 @@
 #pragma once
 
-#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <variant>
 #include <vector>
+
+#include "json_parser.h"
 
 namespace json
 {
     struct value;
 
-    enum class value_type
+    namespace details
     {
-        null,
-        boolean,
-        number,
-        string,
-        array,
-        object,
-    };
+        struct string_hash
+        {
+            using is_transparent = void;
 
-    using null_t = std::nullptr_t;
-    using boolean_t = bool;
-    using number_t = double;
-    using string_t = std::string;
-    template <typename T = value> using array_t = std::vector<T>;
-    using object_t = std::map<string_t, value, std::less<>>;
+            std::size_t operator()(const std::string_view& str) const noexcept
+            {
+                return std::hash<std::string_view>{}(str);
+            }
+        };
+    }
 
-    template <typename T> using optional_t = std::optional<T>;
-    template <typename... Types> using variant_t = std::variant<Types...>;
-
-    inline value* object_try_get(object_t& obj, std::string_view key) noexcept;
-    inline const value* object_try_get(const object_t& obj, std::string_view key) noexcept;
-    inline value& object_get(object_t& obj, std::string_view key);
-    inline const value& object_get(const object_t& obj, std::string_view key);
+    using null = std::nullptr_t;
+    using boolean = bool;
+    using number = double;
+    using string = std::string;
+    using array = std::vector<value>;
+    using object = std::unordered_map<string, value, details::string_hash, std::equal_to<>>;
 
     struct value
     {
-        template <typename T, std::enable_if_t<!std::is_same_v<std::decay_t<T>, value>, int> = 0>
-        value(T&& val) : data(std::forward<T>(val)) {}
+        using type = std::variant<std::monostate, null, boolean, number, string, array, object>;
+        type data;
 
-        value_type type() const noexcept
+        value() = default;
+
+        template <typename T, std::enable_if_t<std::is_constructible_v<type, T&&>, int> = 0>
+        value(T&& value) : data(std::forward<T>(value))
         {
-            return static_cast<value_type>(data.index());
         }
 
-        template <typename T> T& get() { return std::get<T>(data); }
-        template <typename T> const T& get() const { return std::get<T>(data); }
+        template <typename T>
+        constexpr T* get() noexcept
+        {
+            return std::get_if<T>(&data);
+        }
 
-        boolean_t boolean() const { return get<boolean_t>(); }
-        number_t number() const { return get<number_t>(); }
-        string_t& string() { return get<string_t>(); }
-        const string_t& string() const { return get<string_t>(); }
-        array_t<>& array() { return get<array_t<>>(); }
-        const array_t<>& array() const { return get<array_t<>>(); }
-        object_t& object() { return get<object_t>(); }
-        const object_t& object() const { return get<object_t>(); }
+        template <typename T>
+        constexpr const T* get() const noexcept
+        {
+            return std::get_if<T>(&data);
+        }
 
-        value& at(std::size_t index) { return array().at(index); }
-        const value& at(std::size_t index) const { return array().at(index); }
-        value& operator[](std::size_t index) { return array()[index]; }
-        const value& operator[](std::size_t index) const { return array()[index]; }
+        constexpr null* get_null() noexcept
+        {
+            return get<null>();
+        }
 
-        value* try_get(std::string_view key) { return object_try_get(object(), key); }
-        const value* try_get(std::string_view key) const { return object_try_get(object(), key); }
-        value& get(std::string_view key) { return object_get(object(), key); }
-        const value& get(std::string_view key) const { return object_get(object(), key); }
-        value& operator[](std::string_view key) { return get(key); }
-        const value& operator[](std::string_view key) const { return get(key); }
+        constexpr const null* get_null() const noexcept
+        {
+            return get<null>();
+        }
 
-        // NOTE: Order is such that 'value_type' correlates to the index
-        std::variant<
-            null_t,
-            boolean_t,
-            number_t,
-            string_t,
-            array_t<>,
-            object_t> data;
+        constexpr boolean* get_boolean() noexcept
+        {
+            return get<boolean>();
+        }
+
+        constexpr const boolean* get_boolean() const noexcept
+        {
+            return get<boolean>();
+        }
+
+        constexpr number* get_number() noexcept
+        {
+            return get<number>();
+        }
+
+        constexpr const number* get_number() const noexcept
+        {
+            return get<number>();
+        }
+
+        constexpr string* get_string() noexcept
+        {
+            return get<string>();
+        }
+
+        constexpr const string* get_string() const noexcept
+        {
+            return get<string>();
+        }
+
+        constexpr array* get_array() noexcept
+        {
+            return get<array>();
+        }
+
+        constexpr const array* get_array() const noexcept
+        {
+            return get<array>();
+        }
+
+        constexpr object* get_object() noexcept
+        {
+            return get<object>();
+        }
+
+        constexpr const object* get_object() const noexcept
+        {
+            return get<object>();
+        }
     };
 
-
-    inline value* object_try_get(object_t& obj, std::string_view key) noexcept
+    template <typename InputStream>
+    inline bool parse_value(lexer<InputStream>& lexer, value& target) noexcept
     {
-        auto itr = obj.find(key);
-        return (itr == obj.end()) ? nullptr : &itr->second;
-    }
-
-    inline const value* object_try_get(const object_t& obj, std::string_view key) noexcept
-    {
-        return object_try_get(const_cast<object_t&>(obj), key);
-    }
-
-    inline value& object_get(object_t& obj, std::string_view key)
-    {
-        if (auto ptr = object_try_get(obj, key))
+        switch (lexer.current_token)
         {
-            return *ptr;
+        case lexer_token::curly_open: {
+            auto& obj = target.data.emplace<object>();
+            return parse_object(lexer, obj, [](auto& lexer, auto& obj, auto& name) {
+                value v;
+                if (!parse_value(lexer, v)) return false;
+                auto pair = obj.emplace(name, std::move(v));
+                return pair.second;
+            });
         }
 
-        std::string msg = "Key '";
-        msg.append(key);
-        msg += "' is not present in the object";
-        throw std::runtime_error(std::move(msg));
+        case lexer_token::bracket_open: {
+            auto& arr = target.data.emplace<array>();
+            return parse_array(lexer, arr, [](auto& lexer, auto& arr) {
+                value v;
+                if (!parse_value(lexer, v)) return false;
+                arr.push_back(std::move(v));
+                return true;
+            });
+        }
+
+        case lexer_token::keyword_true:
+            target.data.emplace<boolean>(true);
+            lexer.advance();
+            return true;
+
+        case lexer_token::keyword_false:
+            target.data.emplace<boolean>(false);
+            lexer.advance();
+            return true;
+
+        case lexer_token::keyword_null:
+            target.data.emplace<null>(nullptr);
+            lexer.advance();
+            return true;
+
+        case lexer_token::string:
+            target.data.emplace<string>(lexer.string_value);
+            lexer.advance();
+            return true;
+
+        case lexer_token::number: {
+            auto& num = target.data.emplace<number>(0);
+            return parse_number(lexer, num);
+        }
+
+        default: return false;
+        }
     }
 
-    inline const value& object_get(const object_t& obj, std::string_view key)
+    inline value* object_get(object& obj, std::string_view name) noexcept
     {
-        return object_get(const_cast<object_t&>(obj), key);
+        auto itr = obj.find(name);
+        if (itr == obj.end())
+        {
+            return nullptr;
+        }
+
+        return &itr->second;
+    }
+
+    inline const value* object_get(const object& obj, std::string_view name) noexcept
+    {
+        auto itr = obj.find(name);
+        if (itr == obj.end())
+        {
+            return nullptr;
+        }
+
+        return &itr->second;
     }
 }
