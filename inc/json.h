@@ -119,8 +119,8 @@ namespace json
         }
     };
 
-    template <typename InputStream>
-    inline bool parse_value(lexer<InputStream>& lexer, value& target) noexcept
+    template <InputStream InputStreamT>
+    inline bool parse_value(lexer<InputStreamT>& lexer, value& target) noexcept
     {
         switch (lexer.current_token)
         {
@@ -193,5 +193,23 @@ namespace json
         }
 
         return &itr->second;
+    }
+
+    template <typename T>
+    inline T* object_get_as(object& obj, std::string_view name) noexcept
+    {
+        auto value = object_get(obj, name);
+        if (!value) return nullptr;
+
+        return value->get<T>();
+    }
+
+    template <typename T>
+    inline const T* object_get_as(const object& obj, std::string_view name) noexcept
+    {
+        auto value = object_get(obj, name);
+        if (!value) return nullptr;
+
+        return value->get<T>();
     }
 }

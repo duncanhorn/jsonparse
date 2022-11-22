@@ -7,8 +7,8 @@
 
 namespace json
 {
-    template <typename InputStream, typename PointerT>
-    inline bool parse_null(lexer<InputStream>& lexer, PointerT& target) noexcept
+    template <InputStream InputStreamT, typename PointerT>
+    inline bool parse_null(lexer<InputStreamT>& lexer, PointerT& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_null) return false;
 
@@ -17,8 +17,8 @@ namespace json
         return true;
     }
 
-    template <typename InputStream, typename BoolT>
-    inline bool parse_true(lexer<InputStream>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT, typename BoolT>
+    inline bool parse_true(lexer<InputStreamT>& lexer, BoolT& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_true) return false;
 
@@ -27,8 +27,8 @@ namespace json
         return true;
     }
 
-    template <typename InputStream, typename BoolT>
-    inline bool parse_false(lexer<InputStream>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT, typename BoolT>
+    inline bool parse_false(lexer<InputStreamT>& lexer, BoolT& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_false) return false;
 
@@ -38,14 +38,14 @@ namespace json
     }
 
     // Helper to consume either a 'true' or 'false' token
-    template <typename InputStream, typename BoolT>
-    inline bool parse_bool(lexer<InputStream>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT, typename BoolT>
+    inline bool parse_bool(lexer<InputStreamT>& lexer, BoolT& target) noexcept
     {
         return parse_true(lexer, target) || parse_false(lexer, target);
     }
 
-    template <typename InputStream, typename StringT>
-    inline bool parse_string(lexer<InputStream>& lexer, StringT& target)
+    template <InputStream InputStreamT, typename StringT>
+    inline bool parse_string(lexer<InputStreamT>& lexer, StringT& target)
     {
         if (lexer.current_token != lexer_token::string) return false;
 
@@ -54,8 +54,8 @@ namespace json
         return true;
     }
 
-    template <typename InputStream, typename NumberT>
-    inline bool parse_number(lexer<InputStream>& lexer, NumberT& target) noexcept
+    template <InputStream InputStreamT, typename NumberT>
+    inline bool parse_number(lexer<InputStreamT>& lexer, NumberT& target) noexcept
     {
         if (lexer.current_token != lexer_token::number) return false;
 
@@ -203,8 +203,26 @@ namespace json
         return true;
     }
 
-    template <typename InputStream, typename ObjectT, typename Callback>
-    inline bool parse_object(lexer<InputStream>& lexer, ObjectT&& target, Callback&& callback)
+    namespace details
+    {
+        inline bool valid_callback_token(lexer_token token) noexcept
+        {
+            switch (token)
+            {
+            case lexer_token::curly_open:
+            case lexer_token::bracket_open:
+            case lexer_token::keyword_true:
+            case lexer_token::keyword_false:
+            case lexer_token::keyword_null:
+            case lexer_token::string:
+            case lexer_token::number: return true;
+            default: return false;
+            }
+        }
+    }
+
+    template <InputStream InputStreamT, typename ObjectT, typename Callback>
+    inline bool parse_object(lexer<InputStreamT>& lexer, ObjectT&& target, Callback&& callback)
     {
         if (lexer.current_token != lexer_token::curly_open) return false;
         lexer.advance();
@@ -226,7 +244,7 @@ namespace json
                 if ((lexer.current_token == lexer_token::invalid) || (lexer.current_token == lexer_token::eof))
                     return false;
 
-                if (!callback(lexer, target, name)) return false;
+                if (!details::valid_callback_token(lexer.current_token) || !callback(lexer, target, name)) return false;
                 // NOTE: 'callback' should consume all tokens it needs
 
                 if (lexer.current_token != lexer_token::comma) break;
@@ -240,8 +258,8 @@ namespace json
         return true;
     }
 
-    template <typename InputStream, typename ArrayT, typename Callback>
-    inline bool parse_array(lexer<InputStream>& lexer, ArrayT&& target, Callback&& callback)
+    template <InputStream InputStreamT, typename ArrayT, typename Callback>
+    inline bool parse_array(lexer<InputStreamT>& lexer, ArrayT&& target, Callback&& callback)
     {
         if (lexer.current_token != lexer_token::bracket_open) return false;
         lexer.advance();
@@ -253,7 +271,7 @@ namespace json
         {
             while (true)
             {
-                if (!callback(lexer, target)) return false;
+                if (!details::valid_callback_token(lexer.current_token) || !callback(lexer, target)) return false;
                 // NOTE: 'callback' should consume all tokens it needs
 
                 if (lexer.current_token != lexer_token::comma) break;
@@ -269,8 +287,8 @@ namespace json
 
     namespace details
     {
-        template <typename InputStream>
-        inline bool ignore_single_token(lexer<InputStream>& lexer, lexer_token token) noexcept
+        template <InputStream InputStreamT>
+        inline bool ignore_single_token(lexer<InputStreamT>& lexer, lexer_token token) noexcept
         {
             if (lexer.current_token != token) return false;
 
@@ -279,78 +297,74 @@ namespace json
         }
     }
 
-    template <typename InputStream>
-    inline bool ignore_null(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_null(lexer<InputStreamT>& lexer) noexcept
     {
         return details::ignore_single_token(lexer, lexer_token::keyword_null);
     }
 
-    template <typename InputStream>
-    inline bool ignore_true(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_true(lexer<InputStreamT>& lexer) noexcept
     {
         return details::ignore_single_token(lexer, lexer_token::keyword_true);
     }
 
-    template <typename InputStream>
-    inline bool ignore_false(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_false(lexer<InputStreamT>& lexer) noexcept
     {
         return details::ignore_single_token(lexer, lexer_token::keyword_false);
     }
 
-    template <typename InputStream>
-    inline bool ignore_bool(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_bool(lexer<InputStreamT>& lexer) noexcept
     {
         return ignore_true(lexer) || ignore_false(lexer);
     }
 
-    template <typename InputStream>
-    inline bool ignore_string(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_string(lexer<InputStreamT>& lexer) noexcept
     {
         return details::ignore_single_token(lexer, lexer_token::string);
     }
 
-    template <typename InputStream>
-    inline bool ignore_number(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_number(lexer<InputStreamT>& lexer) noexcept
     {
         return details::ignore_single_token(lexer, lexer_token::number);
     }
 
-    template <typename InputStream>
-    inline bool ignore_array(lexer<InputStream>& lexer) noexcept;
+    template <InputStream InputStreamT>
+    inline bool ignore_value(lexer<InputStreamT>& lexer) noexcept;
 
-    template <typename InputStream>
-    inline bool ignore_object(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_object(lexer<InputStreamT>& lexer) noexcept
     {
         return parse_object(lexer, nullptr, [](auto&& lexer, auto&&, auto&&) {
-            switch (lexer.current_token)
-            {
-            case lexer_token::curly_open: return ignore_object(lexer);
-            case lexer_token::bracket_open: return ignore_array(lexer);
-            case lexer_token::keyword_true: return ignore_true(lexer);
-            case lexer_token::keyword_false: return ignore_false(lexer);
-            case lexer_token::keyword_null: return ignore_null(lexer);
-            case lexer_token::string: return ignore_string(lexer);
-            case lexer_token::number: return ignore_number(lexer);
-            default: return false;
-            }
+            return ignore_value(lexer);
         });
     }
 
-    template <typename InputStream>
-    inline bool ignore_array(lexer<InputStream>& lexer) noexcept
+    template <InputStream InputStreamT>
+    inline bool ignore_array(lexer<InputStreamT>& lexer) noexcept
     {
         return parse_array(lexer, nullptr, [](auto&& lexer, auto&&) {
-            switch (lexer.current_token)
-            {
-            case lexer_token::curly_open: return ignore_object(lexer);
-            case lexer_token::bracket_open: return ignore_array(lexer);
-            case lexer_token::keyword_true: return ignore_true(lexer);
-            case lexer_token::keyword_false: return ignore_false(lexer);
-            case lexer_token::keyword_null: return ignore_null(lexer);
-            case lexer_token::string: return ignore_string(lexer);
-            case lexer_token::number: return ignore_number(lexer);
-            default: return false;
-            }
+            return ignore_value(lexer);
         });
+    }
+
+    template <InputStream InputStreamT>
+    inline bool ignore_value(lexer<InputStreamT>& lexer) noexcept
+    {
+        switch (lexer.current_token)
+        {
+        case lexer_token::curly_open: return ignore_object(lexer);
+        case lexer_token::bracket_open: return ignore_array(lexer);
+        case lexer_token::keyword_true: return ignore_true(lexer);
+        case lexer_token::keyword_false: return ignore_false(lexer);
+        case lexer_token::keyword_null: return ignore_null(lexer);
+        case lexer_token::string: return ignore_string(lexer);
+        case lexer_token::number: return ignore_number(lexer);
+        default: return false;
+        }
     }
 }

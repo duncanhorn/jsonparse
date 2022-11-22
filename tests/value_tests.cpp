@@ -105,19 +105,6 @@ bool check_value(const json::value& value, const json::value& expected)
     return false;
 }
 
-template <typename T>
-bool check_value(const json::object& obj, std::string_view name, const T& expected)
-{
-    auto value = json::object_get(obj, name);
-    if (!value)
-    {
-        std::printf("ERROR: '%.*s' not found in object\n", static_cast<int>(name.size()), name.data());
-        return false;
-    }
-
-    return check_value(*value, expected);
-}
-
 static int parse_value_test()
 {
     test_guard guard{ "parse_value_test" };

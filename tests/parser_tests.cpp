@@ -527,62 +527,36 @@ static int parse_array_test()
         }))
         return 1;
 
-    if (!run_with_lexer("[  ", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_array(lexer, nullptr, [&](auto&&, auto&&) {
-                    sawCallback = true;
-                    std::printf("ERROR: Expected no callbacks\n");
-                    return true; // Continue processing; we're already going to fail so see if we fail in other places
-                }))
-            {
-                std::printf("ERROR: Expected failure\n");
-                return false;
-            }
-            else if (sawCallback)
-                return false; // Already displayed error
-
-            return true;
-        }))
-        return 1;
-
-    if (!run_with_lexer("[null  ", [](auto& lexer) {
+    auto expectFailure = [](const std::string& str, int expectedCallbackCount) {
+        return run_with_lexer(str, [&](auto& lexer) {
             int callbackCount = 0;
-            if (json::parse_array(lexer, nullptr, [&](auto&&, auto&&) {
+            if (json::parse_array(lexer, nullptr, [&](auto& lexer, auto&&) {
                     ++callbackCount;
-                    int* dummy;
-                    return json::parse_null(lexer, dummy);
+                    json::ignore_value(lexer);
+                    return true;
                 }))
             {
                 std::printf("ERROR: Expected failure\n");
                 return false;
             }
-            else if (callbackCount != 1)
+            else if (callbackCount != expectedCallbackCount)
             {
-                std::printf("ERROR: Callback invoked an unexpected number of times\n");
+                std::printf("ERROR: Expected %d callbacks, but saw %d\n", expectedCallbackCount, callbackCount);
                 return false;
             }
 
             return true;
-        }))
-        return 1;
+        });
+    };
 
-    if (!run_with_lexer("\"[]\"", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_array(lexer, nullptr, [&](auto&&, auto&&) {
-                    sawCallback = true;
-                    std::printf("ERROR: Expected no callbacks\n");
-                    return true; // Continue processing to see if we hit more errors
-                }))
-            {
-                std::printf("ERROR: Expected failure\n");
-                return false;
-            }
-            else if (sawCallback)
-                return false;
-
-            return true;
-        }))
-        return 1;
+    if (!expectFailure("[  ", 0)) return 1;
+    if (!expectFailure("[,null]", 0)) return 1;
+    if (!expectFailure("[:]", 0)) return 1;
+    if (!expectFailure("[}]", 0)) return 1;
+    if (!expectFailure("[null  ", 1)) return 1;
+    if (!expectFailure("[null,  ", 1)) return 1;
+    if (!expectFailure("[null,]", 1)) return 1;
+    if (!expectFailure("\"[]\"", 0)) return 1;
 
     if (!run_with_lexer("[]", [](auto& lexer) { return json::ignore_array(lexer); }))
     {
@@ -686,98 +660,37 @@ static int parse_object_test()
         }))
         return 1;
 
-    if (!run_with_lexer("{  ", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_object(lexer, nullptr, [&](auto&&, auto&&, auto&&) {
-                    std::printf("ERROR: Expected no callbacks\n");
-                    sawCallback = true;
-                    return true;
-                }))
-            {
-                std::printf("ERROR: Expected failure\n");
-                return false;
-            }
-            else if (sawCallback)
-                return false; // Already printed error
-
-            return true;
-        }))
-        return 1;
-
-    if (!run_with_lexer("{\"foo\":null  ", [](auto& lexer) {
+    auto expectFailure = [](const std::string& str, int expectedCallbackCount) {
+        return run_with_lexer(str, [&](auto& lexer) {
             int callbackCount = 0;
             if (json::parse_object(lexer, nullptr, [&](auto& lexer, auto&&, auto&&) {
                     ++callbackCount;
-                    int* dummy;
-                    return json::parse_null(lexer, dummy);
-                }))
-            {
-                std::printf("ERROR: Expected failure\n");
-                return false;
-            }
-            else if (callbackCount != 1)
-            {
-                std::printf("ERROR: Callback called more than once\n");
-                return false;
-            }
-
-            return true;
-        }))
-        return 1;
-
-    if (!run_with_lexer("{null:null}", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_object(lexer, nullptr, [&](auto&&, auto&&, auto&&) {
-                    sawCallback = true;
-                    std::printf("ERROR: Expected no callbacks\n");
+                    json::ignore_value(lexer);
                     return true;
                 }))
             {
                 std::printf("ERROR: Expected failure\n");
                 return false;
             }
-            else if (sawCallback)
-                return false;
-
-            return true;
-        }))
-        return 1;
-
-    if (!run_with_lexer("{\"foo\":  ", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_object(lexer, nullptr, [&](auto&&, auto&&, auto&&) {
-                    sawCallback = true;
-                    std::printf("ERROR: Expected no callbacks\n");
-                    return true;
-                }))
+            else if (callbackCount != expectedCallbackCount)
             {
-                std::printf("ERROR: Expected failure\n");
+                std::printf("ERROR: Expected %d callbacks, but saw %d\n", expectedCallbackCount, callbackCount);
                 return false;
             }
-            else if (sawCallback)
-                return false;
 
             return true;
-        }))
-        return 1;
+        });
+    };
 
-    if (!run_with_lexer("{\"foo\": invalid  ", [](auto& lexer) {
-            bool sawCallback = false;
-            if (json::parse_object(lexer, nullptr, [&](auto&&, auto&&, auto&&) {
-                    sawCallback = true;
-                    std::printf("ERROR: Expected no callbacks\n");
-                    return true;
-                }))
-            {
-                std::printf("ERROR: Expected failure\n");
-                return false;
-            }
-            else if (sawCallback)
-                return false;
-
-            return true;
-        }))
-        return 1;
+    if (!expectFailure("{  ", 0)) return 1;
+    if (!expectFailure("{:null}", 0)) return 1;
+    if (!expectFailure("{,\"foo\":null}", 0)) return 1;
+    if (!expectFailure("{\"foo\":  ", 0)) return 1;
+    if (!expectFailure("{\"foo\":}", 0)) return 1;
+    if (!expectFailure("{\"foo\":,", 0)) return 1;
+    if (!expectFailure("{\"foo\":invalid  ", 0)) return 1;
+    if (!expectFailure("{\"foo\":null  ", 1)) return 1;
+    if (!expectFailure("{null:null}", 0)) return 1;
 
     if (!run_with_lexer("{}", [](auto& lexer) { return json::ignore_object(lexer); }))
     {

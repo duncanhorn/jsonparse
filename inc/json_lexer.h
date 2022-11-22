@@ -8,19 +8,27 @@ namespace json
 {
     constexpr char invalid_char = 0xFF;
 
-    constexpr std::size_t utf8_code_unit_read_size(char ch) noexcept
+    namespace details
     {
-        return ((ch & 0x80) == 0x00) ? 1 :
-            ((ch & 0xE0) == 0xC0)    ? 2 :
-            ((ch & 0xF0) == 0xE0)    ? 3 :
-            ((ch & 0xF8) == 0xF0)    ? 4 :
-                                       0;
+        constexpr std::size_t utf8_code_unit_read_size(char ch) noexcept
+        {
+            return ((ch & 0x80) == 0x00) ? 1 :
+                ((ch & 0xE0) == 0xC0)    ? 2 :
+                ((ch & 0xF0) == 0xE0)    ? 3 :
+                ((ch & 0xF8) == 0xF0)    ? 4 :
+                                        0;
+        }
+
+        constexpr std::size_t utf8_code_unit_write_size(char32_t ch) noexcept
+        {
+            return (ch < 0x0080) ? 1 : (ch < 0x0800) ? 2 : (ch < 0x10000) ? 3 : (ch < 0x110000) ? 4 : 0;
+        }
     }
 
     constexpr std::pair<char32_t, const char*> utf8_read(const char* begin, const char* end) noexcept
     {
         assert(begin != end);
-        auto size = utf8_code_unit_read_size(*begin);
+        auto size = details::utf8_code_unit_read_size(*begin);
         if (!size) return { 0, begin };
         if (static_cast<std::size_t>(end - begin) < size) return { 0, begin };
 
@@ -37,14 +45,9 @@ namespace json
         return { result, begin };
     }
 
-    constexpr std::size_t utf8_code_unit_write_size(char32_t ch) noexcept
-    {
-        return (ch < 0x0080) ? 1 : (ch < 0x0800) ? 2 : (ch < 0x10000) ? 3 : (ch < 0x110000) ? 4 : 0;
-    }
-
     inline bool utf8_append(std::string& target, char32_t ch)
     {
-        auto size = utf8_code_unit_write_size(ch);
+        auto size = details::utf8_code_unit_write_size(ch);
         if (!size) return false;
 
         char32_t initialMasks[] = { 0x00, 0x7F, 0x1F, 0x0F, 0x07 };
@@ -90,6 +93,15 @@ namespace json
                               {
                                   value.operator bool()
                                   } -> std::same_as<bool>;
+                              {
+                                  value.eof()
+                                  } -> std::same_as<bool>;
+                              {
+                                  value.get()
+                                  } -> std::same_as<char>;
+                              {
+                                  value.peek()
+                                  } -> std::same_as<char>;
                           };
 
     struct buffer_input_stream
@@ -172,15 +184,15 @@ namespace json
         number,
     };
 
-    template <typename InputStream>
+    template <InputStream InputStreamT>
     struct lexer
     {
-        InputStream& input;
+        InputStreamT& input;
         lexer_token current_token = lexer_token::eof; // Since we hard stop on invalid; 'advance' will work correctly
         std::string string_value;
         const char* error_text = nullptr;
 
-        lexer(InputStream& input) : input(input)
+        lexer(InputStreamT& input) : input(input)
         {
             advance();
         }
