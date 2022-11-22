@@ -7,8 +7,32 @@
 
 namespace json
 {
-    template <InputStream InputStreamT, typename PointerT>
-    inline bool parse_null(lexer<InputStreamT>& lexer, PointerT& target) noexcept
+    template <typename T>
+    concept Null = requires(T value) {
+                           {
+                               value = nullptr
+                           };
+                       };
+
+    template <typename T>
+    concept Bool = requires(T value) {
+                       {
+                           value = true
+                       };
+                   };
+
+    template <typename T>
+    concept String = requires(T value, std::string str) {
+                         {
+                             value = str
+                         };
+                     };
+
+    template <typename T>
+    concept Number = std::is_arithmetic_v<T>;
+
+    template <InputStream InputStreamT>
+    inline bool parse_null(lexer<InputStreamT>& lexer, Null auto& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_null) return false;
 
@@ -17,8 +41,8 @@ namespace json
         return true;
     }
 
-    template <InputStream InputStreamT, typename BoolT>
-    inline bool parse_true(lexer<InputStreamT>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT>
+    inline bool parse_true(lexer<InputStreamT>& lexer, Bool auto& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_true) return false;
 
@@ -27,8 +51,8 @@ namespace json
         return true;
     }
 
-    template <InputStream InputStreamT, typename BoolT>
-    inline bool parse_false(lexer<InputStreamT>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT>
+    inline bool parse_false(lexer<InputStreamT>& lexer, Bool auto& target) noexcept
     {
         if (lexer.current_token != lexer_token::keyword_false) return false;
 
@@ -38,14 +62,14 @@ namespace json
     }
 
     // Helper to consume either a 'true' or 'false' token
-    template <InputStream InputStreamT, typename BoolT>
-    inline bool parse_bool(lexer<InputStreamT>& lexer, BoolT& target) noexcept
+    template <InputStream InputStreamT>
+    inline bool parse_bool(lexer<InputStreamT>& lexer, Bool auto& target) noexcept
     {
         return parse_true(lexer, target) || parse_false(lexer, target);
     }
 
-    template <InputStream InputStreamT, typename StringT>
-    inline bool parse_string(lexer<InputStreamT>& lexer, StringT& target)
+    template <InputStream InputStreamT>
+    inline bool parse_string(lexer<InputStreamT>& lexer, String auto& target)
     {
         if (lexer.current_token != lexer_token::string) return false;
 
@@ -54,7 +78,7 @@ namespace json
         return true;
     }
 
-    template <InputStream InputStreamT, typename NumberT>
+    template <InputStream InputStreamT, Number NumberT>
     inline bool parse_number(lexer<InputStreamT>& lexer, NumberT& target) noexcept
     {
         if (lexer.current_token != lexer_token::number) return false;
@@ -221,8 +245,16 @@ namespace json
         }
     }
 
-    template <InputStream InputStreamT, typename ObjectT, typename Callback>
-    inline bool parse_object(lexer<InputStreamT>& lexer, ObjectT&& target, Callback&& callback)
+    template <typename Func, typename InputStreamT, typename Object>
+    concept ObjectCallback = requires(Func fn, lexer<InputStreamT> lexer, Object obj, std::string name) {
+                                 {
+                                     fn(lexer, obj, name)
+                                     } -> std::convertible_to<bool>;
+                             };
+
+    template <InputStream InputStreamT, typename ObjectT>
+    inline bool parse_object(lexer<InputStreamT>& lexer, ObjectT&& target,
+        ObjectCallback<InputStreamT, ObjectT> auto&& callback)
     {
         if (lexer.current_token != lexer_token::curly_open) return false;
         lexer.advance();
@@ -258,8 +290,16 @@ namespace json
         return true;
     }
 
-    template <InputStream InputStreamT, typename ArrayT, typename Callback>
-    inline bool parse_array(lexer<InputStreamT>& lexer, ArrayT&& target, Callback&& callback)
+    template <typename Func, typename InputStreamT, typename Array>
+    concept ArrayCallback = requires(Func fn, lexer<InputStreamT> lexer, Array arr) {
+                                {
+                                    fn(lexer, arr)
+                                    } -> std::convertible_to<bool>;
+                            };
+
+    template <InputStream InputStreamT, typename ArrayT>
+    inline bool parse_array(lexer<InputStreamT>& lexer, ArrayT&& target,
+        ArrayCallback<InputStreamT, ArrayT> auto&& callback)
     {
         if (lexer.current_token != lexer_token::bracket_open) return false;
         lexer.advance();
