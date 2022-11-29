@@ -18,20 +18,21 @@ static int utf8_read_valid_test()
         }
         else if (ch != expect)
         {
-            std::printf("ERROR: Incorrect character read. Expected %d, got %d\n", expect, ch);
+            std::printf("ERROR: Incorrect character read. Expected %08X, got %08X\n", static_cast<unsigned int>(expect),
+                static_cast<unsigned int>(ch));
             return false;
         }
         return true;
     };
 
-    if (!do_test("\u0000", U'\u0000')) return 1;
-    if (!do_test("\u007F", U'\u007F')) return 1;
-    if (!do_test("\u0080", U'\u0080')) return 1;
-    if (!do_test("\u07FF", U'\u07FF')) return 1;
-    if (!do_test("\u0800", U'\u0800')) return 1;
-    if (!do_test("\uFFFF", U'\uFFFF')) return 1;
-    if (!do_test("\U00010000", U'\U00010000')) return 1;
-    if (!do_test("\U0010FFFF", U'\U0010FFFF')) return 1;
+    if (!do_test(u8"\u0000", U'\u0000')) return 1;
+    if (!do_test(u8"\u007F", U'\u007F')) return 1;
+    if (!do_test(u8"\u0080", U'\u0080')) return 1;
+    if (!do_test(u8"\u07FF", U'\u07FF')) return 1;
+    if (!do_test(u8"\u0800", U'\u0800')) return 1;
+    if (!do_test(u8"\uFFFF", U'\uFFFF')) return 1;
+    if (!do_test(u8"\U00010000", U'\U00010000')) return 1;
+    if (!do_test(u8"\U0010FFFF", U'\U0010FFFF')) return 1;
     return guard.success();
 }
 
@@ -50,9 +51,9 @@ static int utf8_read_invalid_test()
 
         return true;
     };
-    if (!do_test(0xC0)) return 1;
-    if (!do_test(0xE0)) return 1;
-    if (!do_test(0xF0)) return 1;
+    if (!do_test(static_cast<char>(0xC0))) return 1;
+    if (!do_test(static_cast<char>(0xE0))) return 1;
+    if (!do_test(static_cast<char>(0xF0))) return 1;
 
     auto do_invalid = [](char value) {
         // NOTE: The expectation is that all input are invalid leading bytes
@@ -65,8 +66,8 @@ static int utf8_read_invalid_test()
 
         return true;
     };
-    do_invalid(0x80);
-    do_invalid(0xF8);
+    do_invalid(static_cast<char>(0x80));
+    do_invalid(static_cast<char>(0xF8));
 
     return guard.success();
 }
@@ -75,10 +76,10 @@ static int utf8_append_test()
 {
     test_guard guard{ "utf8_append_test" };
 
-    const char testString[] = "\u0000\u007F\u0080\u07FF\u0800\uFFFF\U00010000\U0010FFFF";
+    const char8_t testString[] = u8"\u0000\u007F\u0080\u07FF\u0800\uFFFF\U00010000\U0010FFFF";
     auto begin = testString;
     auto end = testString + std::size(testString) - 1; // -1 for null
-    std::string str;
+    std::u8string str;
     while (begin != end)
     {
         auto [ch, ptr] = json::utf8_read(begin, end);
@@ -96,7 +97,7 @@ static int utf8_append_test()
         }
     }
 
-    if (str != std::string_view(testString, std::size(testString) - 1))
+    if (str != std::u8string_view(testString, std::size(testString) - 1))
     {
         std::printf("ERROR: Copied string incorrectly\n");
         return 1;

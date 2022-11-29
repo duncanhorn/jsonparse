@@ -6,17 +6,21 @@
 
 namespace json
 {
-    constexpr char invalid_char = 0xFF;
+    constexpr char invalid_char = static_cast<char>(0xFF);
+
+    template <typename T>
+    concept Utf8Char =
+        std::disjunction_v<std::is_same<std::remove_cv_t<T>, char>, std::is_same<std::remove_cv_t<T>, char8_t>>;
 
     namespace details
     {
-        constexpr std::size_t utf8_code_unit_read_size(char ch) noexcept
+        constexpr std::size_t utf8_code_unit_read_size(Utf8Char auto ch) noexcept
         {
             return ((ch & 0x80) == 0x00) ? 1 :
                 ((ch & 0xE0) == 0xC0)    ? 2 :
                 ((ch & 0xF0) == 0xE0)    ? 3 :
                 ((ch & 0xF8) == 0xF0)    ? 4 :
-                                        0;
+                                           0;
         }
 
         constexpr std::size_t utf8_code_unit_write_size(char32_t ch) noexcept
@@ -25,14 +29,15 @@ namespace json
         }
     }
 
-    constexpr std::pair<char32_t, const char*> utf8_read(const char* begin, const char* end) noexcept
+    template <Utf8Char CharT>
+    constexpr std::pair<char32_t, const CharT*> utf8_read(const CharT* begin, const CharT* end) noexcept
     {
         assert(begin != end);
         auto size = details::utf8_code_unit_read_size(*begin);
         if (!size) return { 0, begin };
         if (static_cast<std::size_t>(end - begin) < size) return { 0, begin };
 
-        char initialMasks[] = { 0x00, 0x7F, 0x1F, 0x0F, 0x07 };
+        CharT initialMasks[] = { 0x00, 0x7F, 0x1F, 0x0F, 0x07 };
         char32_t result = (*begin++) & initialMasks[size];
 
         switch (size)
@@ -45,7 +50,8 @@ namespace json
         return { result, begin };
     }
 
-    inline bool utf8_append(std::string& target, char32_t ch)
+    template <Utf8Char CharT, typename Traits, typename Alloc>
+    inline bool utf8_append(std::basic_string<CharT, Traits, Alloc>& target, char32_t ch)
     {
         auto size = details::utf8_code_unit_write_size(ch);
         if (!size) return false;
@@ -57,9 +63,9 @@ namespace json
 
         switch (size)
         {
-        case 4: target.push_back(static_cast<char>(((ch >> 12) & 0x3F) | 0x80));
-        case 3: target.push_back(static_cast<char>(((ch >> 6) & 0x3F) | 0x80));
-        case 2: target.push_back(static_cast<char>(((ch >> 0) & 0x3F) | 0x80));
+        case 4: target.push_back(static_cast<CharT>(((ch >> 12) & 0x3F) | 0x80));
+        case 3: target.push_back(static_cast<CharT>(((ch >> 6) & 0x3F) | 0x80));
+        case 2: target.push_back(static_cast<CharT>(((ch >> 0) & 0x3F) | 0x80));
         }
 
         return true;
@@ -90,6 +96,7 @@ namespace json
 
     template <typename T>
     concept InputStream = requires(T value) {
+                              typename T::char_type;
                               {
                                   value.operator bool()
                                   } -> std::same_as<bool>;
@@ -98,18 +105,21 @@ namespace json
                                   } -> std::same_as<bool>;
                               {
                                   value.get()
-                                  } -> std::same_as<char>;
+                                  } -> Utf8Char;
                               {
                                   value.peek()
-                                  } -> std::same_as<char>;
+                                  } -> Utf8Char;
                           };
 
+    template <Utf8Char CharT>
     struct buffer_input_stream
     {
-        const char* read;
-        const char* end;
+        using char_type = CharT;
 
-        buffer_input_stream(const char* begin, const char* end) noexcept : read(begin), end(end) {}
+        const CharT* read;
+        const CharT* end;
+
+        buffer_input_stream(const CharT* begin, const CharT* end) noexcept : read(begin), end(end) {}
         buffer_input_stream(std::string_view str) noexcept : buffer_input_stream(str.data(), str.data() + str.size()) {}
 
         constexpr operator bool() const noexcept
@@ -122,41 +132,44 @@ namespace json
             return read == end;
         }
 
-        constexpr char get() noexcept
+        constexpr CharT get() noexcept
         {
             return eof() ? invalid_char : *read++;
         }
 
-        constexpr char peek() noexcept
+        constexpr CharT peek() noexcept
         {
             return eof() ? invalid_char : *read;
         }
     };
 
+    template <Utf8Char CharT>
     struct istream
     {
-        std::istream& stream;
+        using char_type = CharT;
 
-        istream(std::istream& stream) noexcept : stream(stream) {}
+        std::basic_istream<CharT>& stream;
+
+        istream(std::basic_istream<CharT>& stream) noexcept : stream(stream) {}
 
         operator bool() const noexcept
         {
             return stream.good();
         }
 
-        constexpr bool eof() const noexcept
+        bool eof() const noexcept
         {
             return stream.eof();
         }
 
-        constexpr char get() noexcept
+        CharT get() noexcept
         {
-            return static_cast<char>(stream.get());
+            return static_cast<CharT>(stream.get());
         }
 
-        constexpr char peek() noexcept
+        CharT peek() noexcept
         {
-            return static_cast<char>(stream.peek());
+            return static_cast<CharT>(stream.peek());
         }
     };
 
@@ -184,13 +197,17 @@ namespace json
         number,
     };
 
+#define JSON_LEXER_SELECT_TEXT(str) select_text(str, u8"" str)
+
     template <InputStream InputStreamT>
     struct lexer
     {
+        using char_type = typename InputStreamT::char_type;
+
         InputStreamT& input;
         lexer_token current_token = lexer_token::eof; // Since we hard stop on invalid; 'advance' will work correctly
-        std::string string_value;
-        const char* error_text = nullptr;
+        std::basic_string<char_type> string_value;
+        const char_type* error_text = nullptr;
 
         lexer(InputStreamT& input) : input(input)
         {
@@ -214,7 +231,7 @@ namespace json
             current_token = lexer_token::invalid;
             if (!input)
             {
-                error_text = "Bad unicode";
+                error_text = JSON_LEXER_SELECT_TEXT("Bad unicode");
                 return;
             }
 
@@ -223,32 +240,32 @@ namespace json
             {
             case '{':
                 current_token = lexer_token::curly_open;
-                string_value = "{";
+                string_value = JSON_LEXER_SELECT_TEXT("{");
                 break;
 
             case '}':
                 current_token = lexer_token::curly_close;
-                string_value = "}";
+                string_value = JSON_LEXER_SELECT_TEXT("}");
                 break;
 
             case '[':
                 current_token = lexer_token::bracket_open;
-                string_value = "[";
+                string_value = JSON_LEXER_SELECT_TEXT("[");
                 break;
 
             case ']':
                 current_token = lexer_token::bracket_close;
-                string_value = "]";
+                string_value = JSON_LEXER_SELECT_TEXT("]");
                 break;
 
             case ',':
                 current_token = lexer_token::comma;
-                string_value = ",";
+                string_value = JSON_LEXER_SELECT_TEXT(",");
                 break;
 
             case ':':
                 current_token = lexer_token::colon;
-                string_value = ":";
+                string_value = JSON_LEXER_SELECT_TEXT(":");
                 break;
 
             case '"': process_string(); break;
@@ -258,7 +275,7 @@ namespace json
                 if (try_consume_remaining_string("ull"))
                 {
                     current_token = lexer_token::keyword_null;
-                    string_value = "null";
+                    string_value = JSON_LEXER_SELECT_TEXT("null");
                 }
                 break;
 
@@ -267,7 +284,7 @@ namespace json
                 if (try_consume_remaining_string("rue"))
                 {
                     current_token = lexer_token::keyword_true;
-                    string_value = "true";
+                    string_value = JSON_LEXER_SELECT_TEXT("true");
                 }
                 break;
 
@@ -276,7 +293,7 @@ namespace json
                 if (try_consume_remaining_string("alse"))
                 {
                     current_token = lexer_token::keyword_false;
-                    string_value = "false";
+                    string_value = JSON_LEXER_SELECT_TEXT("false");
                 }
                 break;
 
@@ -305,7 +322,8 @@ namespace json
                 if (ch == invalid_char)
                 {
                     string_value.clear();
-                    error_text = input.eof() ? "Unterminated string" : "Bad unicode";
+                    error_text = input.eof() ? JSON_LEXER_SELECT_TEXT("Unterminated string") :
+                                               JSON_LEXER_SELECT_TEXT("Bad unicode");
                     return;
                 }
                 else if (ch == '"')
@@ -320,7 +338,7 @@ namespace json
                     {
                     case '"':
                     case '\\':
-                    case '/': string_value.push_back(static_cast<char>(ch)); break;
+                    case '/': string_value.push_back(static_cast<char_type>(ch)); break;
                     case 'b': string_value.push_back('\b'); break;
                     case 'f': string_value.push_back('\f'); break;
                     case 'n': string_value.push_back('\n'); break;
@@ -347,7 +365,8 @@ namespace json
                             else
                             {
                                 string_value.clear();
-                                error_text = input.eof() ? "Unterminated string" : "Bad unicode";
+                                error_text = input.eof() ? JSON_LEXER_SELECT_TEXT("Unterminated string") :
+                                                           JSON_LEXER_SELECT_TEXT("Bad unicode");
                                 return;
                             }
                         }
@@ -359,16 +378,16 @@ namespace json
 
                     default:
                         string_value.clear();
-                        error_text = input.eof() ? "Unterminated string" :
-                            input                ? "Unknown escape character" :
-                                                   "Bad unicode";
+                        error_text = input.eof() ? JSON_LEXER_SELECT_TEXT("Unterminated string") :
+                            input                ? JSON_LEXER_SELECT_TEXT("Unknown escape character") :
+                                                   JSON_LEXER_SELECT_TEXT("Bad unicode");
                         return;
                     }
                 }
                 else if (static_cast<unsigned char>(ch) < 0x20)
                 {
                     string_value.clear();
-                    error_text = "Control character in string";
+                    error_text = JSON_LEXER_SELECT_TEXT("Control character in string");
                     return;
                 }
                 else
@@ -383,7 +402,7 @@ namespace json
             current_token = lexer_token::string;
         }
 
-        void process_number(char ch)
+        void process_number(char_type ch)
         {
             if (ch == '-')
             {
@@ -395,16 +414,16 @@ namespace json
             if (!is_digit(ch))
             {
                 string_value.clear();
-                error_text = "Unknown value";
+                error_text = JSON_LEXER_SELECT_TEXT("Unknown value");
                 return;
             }
 
-            string_value.push_back(static_cast<char>(ch));
+            string_value.push_back(static_cast<char_type>(ch));
             if (ch != '0')
             {
                 while (is_digit(input.peek()))
                 {
-                    string_value.push_back(static_cast<char>(input.get()));
+                    string_value.push_back(static_cast<char_type>(input.get()));
                 }
             }
 
@@ -416,7 +435,7 @@ namespace json
                 if (!is_digit(input.peek()))
                 {
                     string_value.clear();
-                    error_text = "Invalid number";
+                    error_text = JSON_LEXER_SELECT_TEXT("Invalid number");
                     return;
                 }
 
@@ -428,30 +447,30 @@ namespace json
 
             if ((input.peek() == 'e') || (input.peek() == 'E'))
             {
-                string_value.push_back(static_cast<char>(input.get()));
+                string_value.push_back(static_cast<char_type>(input.get()));
 
                 if ((input.peek() == '-') || (input.peek() == '+'))
                 {
-                    string_value.push_back(static_cast<char>(input.get()));
+                    string_value.push_back(static_cast<char_type>(input.get()));
                 }
 
                 if (!is_digit(input.peek()))
                 {
                     string_value.clear();
-                    error_text = "Invalid number";
+                    error_text = JSON_LEXER_SELECT_TEXT("Invalid number");
                     return;
                 }
 
                 while (is_digit(input.peek()))
                 {
-                    string_value.push_back(static_cast<char>(input.get()));
+                    string_value.push_back(static_cast<char_type>(input.get()));
                 }
             }
 
             if (!next_is_separating_character())
             {
                 string_value.clear();
-                error_text = "Invalid number";
+                error_text = JSON_LEXER_SELECT_TEXT("Invalid number");
                 return;
             }
 
@@ -465,7 +484,7 @@ namespace json
             {
                 if (ch != input.get())
                 {
-                    error_text = "Unknown value";
+                    error_text = JSON_LEXER_SELECT_TEXT("Unknown value");
                     return false;
                 }
             }
@@ -473,7 +492,7 @@ namespace json
             // We still need to validate that this was not just a substring.
             if (!next_is_separating_character())
             {
-                error_text = "Unknown value";
+                error_text = JSON_LEXER_SELECT_TEXT("Unknown value");
                 return false;
             }
 
@@ -492,6 +511,12 @@ namespace json
             // whitespace or any other non-word/number token
             static constexpr const std::string_view separators = " \n\r\t{}[],:\"";
             return separators.find_first_of(ch) != std::string_view::npos;
+        }
+
+        static constexpr const char_type* select_text(const char* ansi, const char8_t* utf8) noexcept
+        {
+            if constexpr (std::is_same_v<char_type, char>) return ansi;
+            else return utf8;
         }
     };
 }

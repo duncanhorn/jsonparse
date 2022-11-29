@@ -116,9 +116,11 @@ namespace json
             if (remainder.front() == '-')
             {
                 if constexpr (!std::is_signed_v<NumberT>) return false;
-
-                negative = true;
-                remainder = remainder.substr(1);
+                else
+                {
+                    negative = true;
+                    remainder = remainder.substr(1);
+                }
             }
 
             auto pos = remainder.find_first_of(".eE");
